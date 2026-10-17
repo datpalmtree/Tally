@@ -1,0 +1,45 @@
+{
+  "name": "tally",
+  "productName": "Tally",
+  "version": "2.0.0",
+  "description": "A calculator whose answers pop out as notes you can drag around your desktop.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist:linux": "electron-builder --linux AppImage"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.tally.desktop",
+    "productName": "Tally",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "script.js",
+      "style.css",
+      "fonts/**",
+      "vendor/**",
+      "icon.png",
+      "tray.png",
+      "tray@2x.png"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "icon.png"
+    },
+    "mac": {
+      "icon": "icon.png",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "icon": "icon.png",
+      "category": "Utility"
+    }
+  }
+}
