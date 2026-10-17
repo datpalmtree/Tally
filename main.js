@@ -2,7 +2,7 @@
 //   desk  : a normal window (move, resize, maximise) with the dotted board, same as the browser version
 //   float : a transparent, click-through layer over the whole desktop
 // Switching closes the window and opens the other kind; the board is kept in the page's storage.
-const { app, BrowserWindow, screen, ipcMain, globalShortcut, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, globalShortcut, Tray, Menu, nativeImage, shell, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -27,6 +27,34 @@ function savePrefs() {
   try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs)); } catch (e) { /* not fatal */ }
 }
 const isFloat = () => prefs.mode === 'float';
+
+/* ---------- float mode: is Ctrl held? ----------
+   The float window is usually not the active app (clicks on empty space go to the app underneath),
+   so the page never hears key presses. A system-wide hook reports just the Ctrl key to the page,
+   which then lets Ctrl+drag near the calculator and notes select. */
+let hook = null, ctrlDown = false;
+function sendCtrl(on) {
+  if (on === ctrlDown) return;
+  ctrlDown = on;
+  if (win && isFloat()) win.webContents.send('tally:ctrl', on);
+}
+function startCtrlWatch() {
+  if (hook) return;
+  try {
+    const { uIOhook, UiohookKey } = require('uiohook-napi');
+    const CTRL = new Set([UiohookKey.Ctrl, UiohookKey.CtrlRight]);
+    uIOhook.on('keydown', e => { if (CTRL.has(e.keycode)) sendCtrl(true); });
+    uIOhook.on('keyup', e => { if (CTRL.has(e.keycode)) sendCtrl(false); });
+    uIOhook.start();
+    hook = uIOhook;
+  } catch (e) { hook = null; /* no hook: the page falls back to keys it hears while active */ }
+}
+function stopCtrlWatch() {
+  if (!hook) return;
+  try { hook.stop(); hook.removeAllListeners(); } catch (e) { /* already stopped */ }
+  hook = null;
+  ctrlDown = false;
+}
 
 function workArea() {
   return screen.getPrimaryDisplay().workArea;
@@ -69,11 +97,13 @@ function createWindow() {
   const w = new BrowserWindow(opts);
   win = w;
   if (float) {
+    startCtrlWatch();
     // Empty desk space passes clicks through to whatever is underneath.
     w.setIgnoreMouseEvents(true, { forward: true });
     w.setAlwaysOnTop(onTop, 'floating');
     if (process.platform === 'darwin') w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   } else {
+    stopCtrlWatch();
     w.removeMenu();
     if (prefs.maximized) w.maximize();
     const keep = () => {
@@ -134,6 +164,7 @@ ipcMain.on('tally:interactive', (_e, on) => {
 });
 ipcMain.on('tally:ontop', (_e, on) => setOnTop(on));
 ipcMain.on('tally:mode', (e) => { e.returnValue = prefs.mode; });
+ipcMain.on('tally:globalkeys', (e) => { e.returnValue = !!hook; });
 ipcMain.on('tally:setmode', (_e, mode) => setMode(mode));
 ipcMain.on('tally:quit', () => app.quit());
 
@@ -151,8 +182,10 @@ app.whenReady().then(() => {
   } catch (e) { /* tray not available on this desktop */ }
   globalShortcut.register('CommandOrControl+Shift+Space', toggleVisible);
   screen.on('display-metrics-changed', () => { if (win && isFloat()) win.setBounds(workArea()); });
+  // a Ctrl release can be missed while the lock screen or Ctrl+Alt+Del is up
+  for (const ev of ['lock-screen', 'unlock-screen', 'suspend', 'resume']) powerMonitor.on(ev, () => sendCtrl(false));
   app.on('activate', () => { if (!win) createWindow(); });
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => { globalShortcut.unregisterAll(); stopCtrlWatch(); });
 app.on('window-all-closed', () => app.quit());

@@ -100,7 +100,7 @@ const SET_VERSION = 2;
 const DEF = {
   v: SET_VERSION, preset: 'polar', theme: 'light', material: 'polar', screen: 'oled', keys: 'squircle', notes: 'glass',
   accent: '#FF4F14', palette: PRESETS.polar.palette.slice(), fDot: 'Doto', fUi: 'Martian Mono',
-  blur: 18, glass: 62, ns: 100, screws: false, grid: true, links: true, sound: true, volume: 55, switches: 'clicky',
+  blur: 18, glass: 62, ns: 100, screws: false, grid: true, links: true, sound: true, volume: 55, switches: 'clicky', barOpen: false,
   grad: 'tint', gradS: 18, gradA: 155,
   dec: LM.dec, group: LM.group, cont: 'link', angle: 'deg', dp: -1, keepOnMerge: true, onTop: true,
 };
@@ -2754,7 +2754,7 @@ function onDeskDown(e) {
   closePopIfOutside(e);
   if (UI.selLink) selectLink(null);
   if (FLOAT && !UI.floatSel) { setSelected([]); return; }
-  const add = e.shiftKey || e.ctrlKey || e.metaKey;
+  const add = e.shiftKey || (!FLOAT && (e.ctrlKey || e.metaKey)); // in float mode Ctrl is the select key itself
   const base = add ? new Set(selected) : new Set();
   const mq = $('#marquee');
   const sx = e.clientX, sy = e.clientY;
@@ -2787,15 +2787,18 @@ function placeCalc() {
   if (S.tapeOpen) placeTape();
   if (FLOAT) dockBar();
 }
-/** Float mode: the toolbar rides along above the calculator (below it when there's no room above). */
+/** Float mode: the toolbar rides along above the calculator's top-left corner (below it when there's no room above). */
 function dockBar() {
-  const bar = $('#bar'), C = calcEl.getBoundingClientRect();
-  const w = Math.max(C.width, 280);
-  bar.style.width = w + 'px';
-  bar.style.left = clamp(C.left + (C.width - w) / 2, 8, Math.max(8, innerWidth - w - 8)) + 'px';
-  const h = bar.offsetHeight;
+  const bar = $('#bar'), C = calcEl.getBoundingClientRect(), open = !!S.set.barOpen;
+  bar.classList.toggle('open', open);
+  const t = $('#barToggle');
+  t.setAttribute('aria-expanded', String(open));
+  t.title = open ? 'Hide tools' : 'Show tools';
+  const w = bar.offsetWidth, h = bar.offsetHeight;
+  bar.style.left = clamp(C.left, 8, Math.max(8, innerWidth - w - 8)) + 'px';
   bar.style.top = (C.top - h - 8 >= 4 ? C.top - h - 8 : Math.min(C.bottom + 8, innerHeight - h - 4)) + 'px';
 }
+$('#barToggle').addEventListener('click', () => { S.set.barOpen = !S.set.barOpen; save(); dockBar(); sfx('tick'); });
 function clampCalc() {
   const w = calcEl.offsetWidth * S.calc.s;
   S.calc.x = clamp(S.calc.x, -w + 80, innerWidth - 80);
@@ -3917,7 +3920,7 @@ function buildCfg() {
   </div>
   ${DESK ? `<div class="cfg-sec"><h3>Desktop</h3>${FLOAT ? togRow('Float above other windows', 'onTop') : ''}
     <p class="note">${FLOAT
-      ? 'Clicks on empty space pass through to your apps. Hold Alt over empty space to select notes (drag), zoom (scroll) or pan (middle-drag).'
+      ? 'Clicks on empty space pass through to your apps. Hold Ctrl near the calculator and notes to select (drag), zoom (scroll) or pan (middle-drag).'
       : 'Float turns Tally into a transparent layer over your desktop, with the toolbar attached to the calculator.'} Ctrl+Shift+Space shows or hides Tally.</p>
     <div class="btnrow"><button class="btn" id="cfgMode">${FLOAT ? 'Switch to desk window' : 'Float over desktop'}</button><button class="btn" id="cfgQuit">Quit Tally</button></div></div>` : ''}
   <div class="cfg-sec"><h3>Board files</h3>
@@ -4457,12 +4460,20 @@ function screenOrigin() {
 }
 /** After a mode switch: shift the calculator, board and panels so they stay where they were on screen. */
 function keepScreenPlace() {
-  if (!DESK || !S.origin) return;
+  if (!DESK || !S.origin) return false;
   const o = screenOrigin(), dx = S.origin.x - o.x, dy = S.origin.y - o.y;
   S.origin = null;
   if (S.calc.x !== null) { S.calc.x += dx; S.calc.y += dy; }
   S.cam.x += dx; S.cam.y += dy;
   for (const p of [S.scope, S.cfgPos]) if (p && p.x !== null && p.x !== undefined) { p.x += dx; p.y += dy; }
+  return true;
+}
+/** Pull the whole calculator inside the window (after a switch it may have been outside the new window). */
+function calcFullyInView() {
+  const w = calcEl.offsetWidth * S.calc.s, h = calcEl.offsetHeight * S.calc.s;
+  S.calc.x = clamp(S.calc.x, 8, Math.max(8, innerWidth - w - 8));
+  S.calc.y = clamp(S.calc.y, 8, Math.max(8, innerHeight - h - 8));
+  placeCalc();
 }
 /** Save now, then ask the desktop app to reopen in the other mode. */
 function switchWindowMode() {
@@ -4478,29 +4489,42 @@ if (DESK && DESK.setMode) {
   b.title = FLOAT ? 'Back to the desk window' : 'Float over your desktop: transparent, and clicks on empty space reach your other apps';
   b.addEventListener('click', switchWindowMode);
 }
-/* Float mode: empty space lets clicks through. Holding Alt captures it for selecting, zooming and panning. */
+/* Float mode: empty space lets clicks through. Holding Ctrl near the calculator and notes captures it
+   for selecting, zooming and panning; farther away, Ctrl+click still reaches the app underneath. */
 if (FLOAT) {
   root.classList.add('desktop-mode', 'float-mode');
   let inter = null, over = false, hinted = false;
-  const INTER = '.device,.block,.panel,.pop,#bar .pill,#tape,#stats,#trash,#toast,#links .hit,#links .handle,#links .ldel';
+  const mouse = { x: -1e4, y: -1e4 };
+  const INTER = '.device,.block,.panel,.pop,#bar .pill,#bar .bar-toggle,#tape,#stats,#trash,#toast,#links .hit,#links .handle,#links .ldel';
   const setI = on => { if (on !== inter) { inter = on; try { DESK.setInteractive(on); } catch (e) { /* ignore */ } } };
-  const sync = () => setI(!!UI.floatSel || over);
-  const setSel = on => {
-    if (!!on === !!UI.floatSel) return;
-    UI.floatSel = !!on;
-    root.classList.toggle('float-select', UI.floatSel);
-    if (UI.floatSel && !hinted) { hinted = true; toast('Alt held · drag to select · scroll to zoom · middle-drag to pan'); }
-    sync();
+  /** The area Ctrl may grab: the calculator, plus the box around every note, with some room to start a drag. */
+  const nearTally = (x, y) => {
+    const pad = 100, rs = [rectOf(calcEl)];
+    if (S.blocks.length) {
+      const bs = S.blocks.map(b => rectToScreen(blockRect(b)));
+      const x0 = Math.min(...bs.map(r => r.x)), y0 = Math.min(...bs.map(r => r.y));
+      rs.push({ x: x0, y: y0, w: Math.max(...bs.map(r => r.x + r.w)) - x0, h: Math.max(...bs.map(r => r.y + r.h)) - y0 });
+    }
+    return rs.some(r => x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad);
   };
+  const sync = () => {
+    const grab = !!UI.floatSel && nearTally(mouse.x, mouse.y);
+    root.classList.toggle('float-select', grab);
+    if (grab && !hinted) { hinted = true; toast('Ctrl held · drag to select · scroll to zoom · middle-drag to pan'); }
+    setI(grab || over);
+  };
+  const setSel = on => { if (!!on !== !!UI.floatSel) { UI.floatSel = !!on; sync(); } };
   addEventListener('pointermove', e => {
+    mouse.x = e.clientX; mouse.y = e.clientY;
     if (UI.dragging || UI.linkDrag || e.buttons) { setI(true); return; }
     over = !!(e.target.closest && e.target.closest(INTER));
-    if (e.altKey !== !!UI.floatSel) setSel(e.altKey);
     sync();
   }, true);
-  addEventListener('keydown', e => { if (e.key === 'Alt') { e.preventDefault(); setSel(true); } }, true);
-  addEventListener('keyup', e => { if (e.key === 'Alt') { e.preventDefault(); setSel(false); } }, true);
-  addEventListener('blur', () => setSel(false));
+  // The desktop app reports Ctrl even while Tally isn't the active app. Without that, use the keys Tally hears itself.
+  if (DESK.onCtrl) DESK.onCtrl(setSel);
+  addEventListener('keydown', e => { if (e.key === 'Control') setSel(true); }, true);
+  addEventListener('keyup', e => { if (e.key === 'Control') setSel(false); }, true);
+  addEventListener('blur', () => { if (!DESK.globalKeys) setSel(false); });
   addEventListener('pointerleave', () => { over = false; sync(); });
   setI(false);
   if (DESK.setOnTop) DESK.setOnTop(!!S.set.onTop);
@@ -4565,7 +4589,7 @@ function seed() {
   }
 }
 function boot() {
-  keepScreenPlace();
+  const switched = keepScreenPlace();
   buildPads();
   applySettings(false);
   applyCam();
@@ -4573,6 +4597,7 @@ function boot() {
   $('#modeSwitch .thumb').style.transform = `translateX(${['std', 'sci', 'prg'].indexOf(S.calc.mode) * 100}%)`;
   $$('#modeSwitch button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.mode === S.calc.mode)));
   initialPlacement();
+  if (switched) calcFullyInView();
   recomputeAll();
   if (FRESH) seed();
   else if (S.scope.open) openScope();

@@ -12,9 +12,9 @@ Tally is a desktop app built with [Electron](https://www.electronjs.org/). It ha
 |---|---|---|---|
 | **What you see** | A normal window with the dotted board | The calculator and notes float over your other apps, with no background or frame | A web page with the dotted board |
 | **Move and resize the window** | Yes | Not needed: it covers your screen but is invisible | Like any browser tab |
-| **Toolbar** | Across the top | Icons attached to the calculator, moving with it | Across the top |
+| **Toolbar** | Across the top | Folds into a round button above the calculator's top-left corner and moves with it | Across the top |
 | **Clicking empty space** | Selects and pans on the board | Passes through to whatever app is underneath | Selects and pans on the board |
-| **Select, zoom, pan on empty space** | Drag · scroll · middle-drag | Hold <kbd>Alt</kbd>, then drag · scroll · middle-drag | Drag · scroll · middle-drag |
+| **Select, zoom, pan on empty space** | Drag · scroll · middle-drag | Hold <kbd>Ctrl</kbd> near the calculator and notes, then drag · scroll · middle-drag | Drag · scroll · middle-drag |
 | **Stays on top of other windows** | No | Yes, toggle it from the tray icon or Config | No |
 | **Show/hide shortcut and tray icon** | Yes | Yes | No |
 
@@ -22,7 +22,9 @@ Both desktop modes share one board. Switching saves it, reopens the window in th
 
 **Float is one window, not one per note.** It's a single transparent window the size of your main screen, with the calculator, notes, and panels drawn inside it. Clicks only land on Tally where something is drawn, so the rest of your screen works normally. Because it's one window on the main display, notes can't be dragged onto a second monitor.
 
-**Why Alt in Float mode?** For Tally to draw a selection box, it has to catch clicks on empty space, which normally go to the app underneath. Holding <kbd>Alt</kbd> tells Tally to catch them, and the board gets a faint tint while it does. Ctrl would get in the way of Ctrl+click in other apps, such as opening a link in a new tab. Alt works once Tally is the active app, for example right after you click the calculator or a note.
+**The Float toolbar.** Click the round **v** button above the calculator to unfold the tools into one row. The arrow turns to **>** while they're open. Click it again to fold them away. Tally remembers which way you left it.
+
+**Selecting in Float mode.** For Tally to draw a selection box, it has to catch clicks on empty space, which normally go to the app underneath. Holding <kbd>Ctrl</kbd> tells Tally to catch them, and the board gets a faint tint while it does. This only happens near the calculator and notes (within about 100px of them), so <kbd>Ctrl</kbd>+click keeps working in other apps away from Tally, for example to open a link in a new tab. The desktop app watches the Ctrl key system-wide while in Float mode, so this works even when Tally isn't the active app. It only listens for Ctrl, and only in Float mode.
 
 The browser version keeps its notes in that browser's storage, separate from the desktop app.
 
@@ -72,10 +74,18 @@ Remove-Item Env:ELECTRON_RUN_AS_NODE   # PowerShell
 npm start
 ```
 
-### Build a standalone app
+### Install it like a normal Windows app
 
 ```bash
-npm run dist          # Windows: portable .exe in dist/
+npm run dist          # builds dist/Tally Setup 2.0.0.exe
+```
+
+Run `Tally Setup 2.0.0.exe` to install Tally for your user account (no admin rights needed). It adds **Tally** to the desktop and Start menu, and you can pin it to the taskbar from there. The installer isn't code-signed, so Windows SmartScreen may warn the first time: choose **More info → Run anyway**. Uninstall from **Settings → Apps**.
+
+Other builds:
+
+```bash
+npm run dist:portable # one self-contained Tally .exe, nothing to install (starts slower)
 npm run dist:mac      # macOS .dmg
 npm run dist:linux    # Linux AppImage
 ```
@@ -118,7 +128,8 @@ npm run dist:linux    # Linux AppImage
 
 - **Float** / **Desk** in the toolbar switches window mode. It's also in **Config → Desktop** and the tray menu.
 - <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> on Mac) shows or hides Tally.
-- In Float mode, hold <kbd>Alt</kbd> over empty space to select (drag, add <kbd>Shift</kbd> to add to the selection), zoom (scroll), or pan (middle-drag).
+- In Float mode, the round **v** button above the calculator folds the toolbar in and out.
+- In Float mode, hold <kbd>Ctrl</kbd> near the calculator and notes to select (drag, add <kbd>Shift</kbd> to add to the selection), zoom (scroll), or pan (middle-drag).
 - The tray icon has Show/Hide, Desk window / Float over desktop, **Float above other windows** (Float mode only), and Quit. Quit is also in Config.
 
 ## Settings

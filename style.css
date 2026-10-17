@@ -433,7 +433,15 @@ html.desktop-mode,html.desktop-mode body{background:transparent!important}
 html.desktop-mode #desk{background:transparent!important}
 .only-float{display:none}
 html.float-mode .only-float{display:block}
-html.float-mode #bar{right:auto;justify-content:center;gap:6px}
+html.float-mode #bar{right:auto;flex-wrap:nowrap;gap:6px}
+/* float mode: the toolbar folds into a round button above the calculator's top-left corner */
+.bar-toggle{display:none}
+html.float-mode .bar-toggle{display:grid;place-items:center;flex:none;width:36px;height:36px;padding:0;border:0;border-radius:50%;color:var(--ink-2);cursor:pointer;
+  background:var(--glass-strong);backdrop-filter:blur(var(--blur)) saturate(1.4);-webkit-backdrop-filter:blur(var(--blur)) saturate(1.4);box-shadow:inset 0 1px 0 var(--glass-hi),0 0 0 1px var(--glass-line),0 8px 20px -12px rgb(var(--shadow)/.35)}
+html.float-mode .bar-toggle:hover{color:var(--ink)}
+html.float-mode .bar-toggle svg{width:15px;height:15px;transition:transform .2s cubic-bezier(.3,1.4,.5,1)}
+html.float-mode #bar.open .bar-toggle svg{transform:rotate(-90deg)}
+html.float-mode #bar:not(.open) > .pill{display:none}
 html.float-mode #bar .logo,html.float-mode #bar .bb .lbl,html.float-mode #bLinks i{display:none}
 html.float-mode #bar .bb{padding:0 8px}
 html.float-mode #bar .only-narrow{display:block}

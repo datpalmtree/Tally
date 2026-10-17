@@ -6,7 +6,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable",
+    "dist": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
     "dist:mac": "electron-builder --mac dmg",
     "dist:linux": "electron-builder --linux AppImage"
   },
@@ -17,6 +18,7 @@
   "build": {
     "appId": "app.tally.desktop",
     "productName": "Tally",
+    "npmRebuild": false,
     "files": [
       "main.js",
       "preload.js",
@@ -30,8 +32,16 @@
       "tray@2x.png"
     ],
     "win": {
-      "target": "portable",
+      "target": "nsis",
       "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tally"
     },
     "mac": {
       "icon": "icon.png",
@@ -41,5 +51,8 @@
       "icon": "icon.png",
       "category": "Utility"
     }
+  },
+  "dependencies": {
+    "uiohook-napi": "^1.5.4"
   }
 }
