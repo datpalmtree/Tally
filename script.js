@@ -33,6 +33,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
 const uid = p => p + Math.random().toString(36).slice(2, 8);
 /** Bridge injected by the desktop app's preload script (null in a browser). */
 const DESK = window.tallyDesktop || null;
+/** Desktop app in float mode: a transparent layer over the desktop. Desk mode and browsers get the normal board. */
+const FLOAT = !!(DESK && DESK.mode === 'float');
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** Platform capabilities (claude.ai artifact runtime); absent elsewhere. */
 const CL = window.claude && typeof window.claude.use === 'function' ? window.claude : null;
@@ -114,6 +116,7 @@ const S = {
   scope: { open: false, x: null, y: null, w: 460, h: 360, live: true, v: null, mode: 'steps', cmp: 'bars', sweepIn: null, sweepR: 50, rel: false, focus: null },
   cam: { x: 0, y: 0, z: 1 },
   tapeOpen: false, example: false, cfgPos: null,
+  origin: null,          // desktop app: where the page sat on screen when the window mode was switched
   set: { ...DEF },
   savedAt: 0,
 };
@@ -134,6 +137,7 @@ function loadState(saved) {
   S.tapeOpen = !!saved.tapeOpen;
   S.example = !!saved.example;
   S.cfgPos = saved.cfgPos || null;
+  S.origin = saved.origin && isFinite(saved.origin.x) ? saved.origin : null;
   S.savedAt = saved.savedAt || 1; // older saves had no timestamp: treat as "some local work exists"
   const old = saved.set || {};
   Object.assign(S.set, old);
@@ -2749,7 +2753,7 @@ function onDeskDown(e) {
   if (e.button !== 0 || UI.space) return;
   closePopIfOutside(e);
   if (UI.selLink) selectLink(null);
-  if (DESK) { setSelected([]); return; }
+  if (FLOAT && !UI.floatSel) { setSelected([]); return; }
   const add = e.shiftKey || e.ctrlKey || e.metaKey;
   const base = add ? new Set(selected) : new Set();
   const mq = $('#marquee');
@@ -2781,6 +2785,16 @@ function placeCalc() {
   calcEl.style.setProperty('--wf', c.wf || 1);
   calcEl.style.transform = `translate3d(${c.x}px,${c.y}px,0) scale(${c.s})`;
   if (S.tapeOpen) placeTape();
+  if (FLOAT) dockBar();
+}
+/** Float mode: the toolbar rides along above the calculator (below it when there's no room above). */
+function dockBar() {
+  const bar = $('#bar'), C = calcEl.getBoundingClientRect();
+  const w = Math.max(C.width, 280);
+  bar.style.width = w + 'px';
+  bar.style.left = clamp(C.left + (C.width - w) / 2, 8, Math.max(8, innerWidth - w - 8)) + 'px';
+  const h = bar.offsetHeight;
+  bar.style.top = (C.top - h - 8 >= 4 ? C.top - h - 8 : Math.min(C.bottom + 8, innerHeight - h - 4)) + 'px';
 }
 function clampCalc() {
   const w = calcEl.offsetWidth * S.calc.s;
@@ -3901,7 +3915,11 @@ function buildCfg() {
     ${segRow('After =, keep going with', 'cont', [['link', 'Linked note'], ['value', 'Plain value']], true)}
     ${togRow('Merging keeps the originals', 'keepOnMerge')}
   </div>
-  ${DESK ? `<div class="cfg-sec"><h3>Desktop</h3>${togRow('Float above other windows', 'onTop')}<p class="note">Ctrl+Shift+Space shows or hides Tally. Empty board space lets clicks through to your apps.</p><div class="btnrow"><button class="btn" id="cfgQuit">Quit Tally</button></div></div>` : ''}
+  ${DESK ? `<div class="cfg-sec"><h3>Desktop</h3>${FLOAT ? togRow('Float above other windows', 'onTop') : ''}
+    <p class="note">${FLOAT
+      ? 'Clicks on empty space pass through to your apps. Hold Alt over empty space to select notes (drag), zoom (scroll) or pan (middle-drag).'
+      : 'Float turns Tally into a transparent layer over your desktop, with the toolbar attached to the calculator.'} Ctrl+Shift+Space shows or hides Tally.</p>
+    <div class="btnrow"><button class="btn" id="cfgMode">${FLOAT ? 'Switch to desk window' : 'Float over desktop'}</button><button class="btn" id="cfgQuit">Quit Tally</button></div></div>` : ''}
   <div class="cfg-sec"><h3>Board files</h3>
     <div class="btnrow"><button class="btn" data-file="import">Import…</button><button class="btn" data-file="board">Export board</button><button class="btn" data-file="sel">Export selection</button><button class="btn" data-file="pdf">Selection as PDF</button></div>
     <div class="btnrow"><button class="btn" id="cfgReset">Reset look</button></div>
@@ -3981,6 +3999,7 @@ $('#cfgBody').addEventListener('click', e => {
     applySettings(); syncCfg(); toast('Look reset'); sfx('whoosh');
   }
   if (e.target.id === 'cfgQuit' && DESK) DESK.quit();
+  if (e.target.id === 'cfgMode') switchWindowMode();
 });
 $('#cfgBody').addEventListener('input', e => {
   const s = S.set, t = e.target;
@@ -4114,7 +4133,7 @@ const mixWhite = (rgb, k) => rgb.map(c => Math.round(c + (255 - c) * k));
 /** Draw the given notes and their links as a vector PDF (jsPDF, loaded on demand). */
 async function exportPDF(list) {
   toast('Preparing PDF…');
-  try { await loadScript(DESK ? 'vendor/jspdf.umd.min.js' : 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'); }
+  try { await loadScript('vendor/jspdf.umd.min.js'); }
   catch (e) { toast('Couldn’t load the PDF maker — check your connection'); return; }
   const { jsPDF } = window.jspdf;
   const rects = new Map(list.map(b => [b.id, blockRect(b)]));
@@ -4172,8 +4191,8 @@ function updateBar() {
   $('#bLinks').classList.toggle('on', !!S.set.links);
   $('#bUndo').disabled = !UNDO.length; $('#bUndo').style.opacity = UNDO.length ? 1 : 0.4;
   $('#bRedo').disabled = !REDO.length; $('#bRedo').style.opacity = REDO.length ? 1 : 0.4;
-  $('#exampleChip').hidden = !S.example;
   $('#bClear').style.display = S.blocks.length ? '' : 'none';
+  if (FLOAT) dockBar();
 }
 $('#bUndo').addEventListener('click', undo);
 $('#bRedo').addEventListener('click', redo);
@@ -4214,9 +4233,7 @@ function clearDesk(btn) {
   sfx('del'); toast(`Cleared ${n} notes · Ctrl+Z brings them back`);
 }
 $('#bClear').addEventListener('click', e => clearDesk(e.currentTarget));
-$('#bExClear').addEventListener('click', () => clearDesk());
 $('#bEx').addEventListener('click', e => openExamples(e.currentTarget));
-$('#bExMore').addEventListener('click', e => openExamples(e.currentTarget));
 /** Arrange unpinned notes in columns beside the calculator (animated; links follow). */
 function tidy() {
   const list = S.blocks.filter(b => !b.pin).sort((a, b) => a.n - b.n);
@@ -4419,7 +4436,7 @@ statsEl.addEventListener('click', e => {
   statBlock(k);
 });
 document.addEventListener('pointerdown', e => {
-  if (!popEl.hidden && !popEl.contains(e.target) && !e.target.closest('[data-a="more"],[data-a="op"],#bFile,#bEx,#bExMore') && !e.target.closest('.block')) closePop();
+  if (!popEl.hidden && !popEl.contains(e.target) && !e.target.closest('[data-a="more"],[data-a="op"],#bFile,#bEx') && !e.target.closest('.block')) closePop();
 }, true);
 let rzT = 0;
 addEventListener('resize', () => {
@@ -4432,14 +4449,59 @@ addEventListener('resize', () => {
   }, 80);
 });
 
-/* ---------- desktop app: empty space lets clicks through ---------- */
-if (DESK) {
-  root.classList.add('desktop-mode');
-  let inter = null;
+/* ---------- desktop app: desk window or floating overlay ---------- */
+/** Where this page's top-left corner sits on the screen (inside the frame, if the window has one). */
+function screenOrigin() {
+  const fx = Math.max(0, (outerWidth - innerWidth) / 2);
+  return { x: screenX + fx, y: screenY + Math.max(0, outerHeight - innerHeight - fx) };
+}
+/** After a mode switch: shift the calculator, board and panels so they stay where they were on screen. */
+function keepScreenPlace() {
+  if (!DESK || !S.origin) return;
+  const o = screenOrigin(), dx = S.origin.x - o.x, dy = S.origin.y - o.y;
+  S.origin = null;
+  if (S.calc.x !== null) { S.calc.x += dx; S.calc.y += dy; }
+  S.cam.x += dx; S.cam.y += dy;
+  for (const p of [S.scope, S.cfgPos]) if (p && p.x !== null && p.x !== undefined) { p.x += dx; p.y += dy; }
+}
+/** Save now, then ask the desktop app to reopen in the other mode. */
+function switchWindowMode() {
+  if (!DESK || !DESK.setMode) return;
+  S.origin = screenOrigin();
+  flushSave(); sfx('whoosh');
+  setTimeout(() => DESK.setMode(FLOAT ? 'desk' : 'float'), 60);
+}
+if (DESK && DESK.setMode) {
+  const b = $('#bMode');
+  $('#modePill').hidden = false;
+  b.querySelector('.lbl').textContent = FLOAT ? 'Desk' : 'Float';
+  b.title = FLOAT ? 'Back to the desk window' : 'Float over your desktop: transparent, and clicks on empty space reach your other apps';
+  b.addEventListener('click', switchWindowMode);
+}
+/* Float mode: empty space lets clicks through. Holding Alt captures it for selecting, zooming and panning. */
+if (FLOAT) {
+  root.classList.add('desktop-mode', 'float-mode');
+  let inter = null, over = false, hinted = false;
   const INTER = '.device,.block,.panel,.pop,#bar .pill,#tape,#stats,#trash,#toast,#links .hit,#links .handle,#links .ldel';
   const setI = on => { if (on !== inter) { inter = on; try { DESK.setInteractive(on); } catch (e) { /* ignore */ } } };
-  addEventListener('pointermove', e => { if (UI.dragging || UI.linkDrag || e.buttons) { setI(true); return; } setI(!!(e.target.closest && e.target.closest(INTER))); }, true);
-  addEventListener('pointerleave', () => setI(false));
+  const sync = () => setI(!!UI.floatSel || over);
+  const setSel = on => {
+    if (!!on === !!UI.floatSel) return;
+    UI.floatSel = !!on;
+    root.classList.toggle('float-select', UI.floatSel);
+    if (UI.floatSel && !hinted) { hinted = true; toast('Alt held · drag to select · scroll to zoom · middle-drag to pan'); }
+    sync();
+  };
+  addEventListener('pointermove', e => {
+    if (UI.dragging || UI.linkDrag || e.buttons) { setI(true); return; }
+    over = !!(e.target.closest && e.target.closest(INTER));
+    if (e.altKey !== !!UI.floatSel) setSel(e.altKey);
+    sync();
+  }, true);
+  addEventListener('keydown', e => { if (e.key === 'Alt') { e.preventDefault(); setSel(true); } }, true);
+  addEventListener('keyup', e => { if (e.key === 'Alt') { e.preventDefault(); setSel(false); } }, true);
+  addEventListener('blur', () => setSel(false));
+  addEventListener('pointerleave', () => { over = false; sync(); });
   setI(false);
   if (DESK.setOnTop) DESK.setOnTop(!!S.set.onTop);
 }
@@ -4503,6 +4565,7 @@ function seed() {
   }
 }
 function boot() {
+  keepScreenPlace();
   buildPads();
   applySettings(false);
   applyCam();

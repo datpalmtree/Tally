@@ -1,10 +1,32 @@
 # Tally
 
-**A calculator whose answers pop out as notes you can drag around your desktop.**
+**A node-based calculator whose answers pop out as notes you can drag around your screen.**
 
-Tally runs as a transparent layer over your desktop. Every time you press <kbd>=</kbd>, the answer becomes a note on a zoomable board. Notes can reference each other, so change one number and everything built on it updates. Clicks on empty space pass straight through to the apps underneath, so the notes sit on your screen like sticky notes that can do math.
+Every time you press <kbd>=</kbd>, the answer becomes a note on a zoomable board. Notes can reference each other and feed into function nodes, so change one number and everything built on it updates.
 
-It's an Electron app with no framework and no build step: one HTML file, one stylesheet, one script.
+## How it runs
+
+Tally is a desktop app built with [Electron](https://www.electronjs.org/). It has two window modes, and you switch between them with the **Float** / **Desk** button in the toolbar. The same files also open as a web page.
+
+| | **Desk** (desktop app, default) | **Float** (desktop app) | **Browser** |
+|---|---|---|---|
+| **What you see** | A normal window with the dotted board | The calculator and notes float over your other apps, with no background or frame | A web page with the dotted board |
+| **Move and resize the window** | Yes | Not needed: it covers your screen but is invisible | Like any browser tab |
+| **Toolbar** | Across the top | Icons attached to the calculator, moving with it | Across the top |
+| **Clicking empty space** | Selects and pans on the board | Passes through to whatever app is underneath | Selects and pans on the board |
+| **Select, zoom, pan on empty space** | Drag · scroll · middle-drag | Hold <kbd>Alt</kbd>, then drag · scroll · middle-drag | Drag · scroll · middle-drag |
+| **Stays on top of other windows** | No | Yes, toggle it from the tray icon or Config | No |
+| **Show/hide shortcut and tray icon** | Yes | Yes | No |
+
+Both desktop modes share one board. Switching saves it, reopens the window in the other mode, and keeps the calculator and notes where they were on screen. Tally remembers the last mode and the desk window's size and position.
+
+**Float is one window, not one per note.** It's a single transparent window the size of your main screen, with the calculator, notes, and panels drawn inside it. Clicks only land on Tally where something is drawn, so the rest of your screen works normally. Because it's one window on the main display, notes can't be dragged onto a second monitor.
+
+**Why Alt in Float mode?** For Tally to draw a selection box, it has to catch clicks on empty space, which normally go to the app underneath. Holding <kbd>Alt</kbd> tells Tally to catch them, and the board gets a faint tint while it does. Ctrl would get in the way of Ctrl+click in other apps, such as opening a link in a new tab. Alt works once Tally is the active app, for example right after you click the calculator or a note.
+
+The browser version keeps its notes in that browser's storage, separate from the desktop app.
+
+No framework and no build step: one HTML file, one stylesheet, one script.
 
 ---
 
@@ -24,12 +46,29 @@ It's an Electron app with no framework and no build step: one HTML file, one sty
 
 ## Getting started
 
+### Desktop app
+
 You need [Node.js LTS](https://nodejs.org) (one-time install).
 
 ```bash
-git clone https://github.com/<your-username>/tally.git
-cd tally
+git clone https://github.com/datpalmtree/Tally.git
+cd Tally
 npm install
+npm start
+```
+
+`npm install` is only needed once. It downloads Electron into `node_modules/`. After that, `npm start` launches Tally in the mode you used last (Desk the first time). To quit, close the desk window, or use the tray icon or **Config → Quit Tally**.
+
+### In a browser
+
+Open `index.html` in Chrome, Edge, or Firefox, or serve the folder with a local server such as VS Code's **Live Server** extension. There's nothing to install.
+
+### Troubleshooting
+
+**`npm start` fails with `Cannot read properties of undefined (reading 'requestSingleInstanceLock')`.** The `ELECTRON_RUN_AS_NODE` environment variable is set in that terminal, so Electron is running as plain Node.js. Some tools launched from VS Code set it. Clear it and try again:
+
+```powershell
+Remove-Item Env:ELECTRON_RUN_AS_NODE   # PowerShell
 npm start
 ```
 
@@ -75,10 +114,12 @@ npm run dist:linux    # Linux AppImage
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> | Copy / paste notes (or paste an equation) |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Undo / redo |
 
-### Desktop
+### Desktop app only
 
+- **Float** / **Desk** in the toolbar switches window mode. It's also in **Config → Desktop** and the tray menu.
 - <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd> on Mac) shows or hides Tally.
-- The tray icon has Show/Hide, **Float above other windows**, and Quit. Quit is also in Config.
+- In Float mode, hold <kbd>Alt</kbd> over empty space to select (drag, add <kbd>Shift</kbd> to add to the selection), zoom (scroll), or pan (middle-drag).
+- The tray icon has Show/Hide, Desk window / Float over desktop, **Float above other windows** (Float mode only), and Quit. Quit is also in Config.
 
 ## Settings
 

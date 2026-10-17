@@ -1,6 +1,10 @@
-// Tally desktop — runs the calculator in a transparent, click-through layer over your desktop.
+// Tally desktop — two window modes:
+//   desk  : a normal window (move, resize, maximise) with the dotted board, same as the browser version
+//   float : a transparent, click-through layer over the whole desktop
+// Switching closes the window and opens the other kind; the board is kept in the page's storage.
 const { app, BrowserWindow, screen, ipcMain, globalShortcut, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-transparent-visuals');
@@ -12,22 +16,32 @@ let win = null;
 let tray = null;
 let onTop = true;
 
+/* ---------- window preferences (mode + desk window size), kept between launches ---------- */
+const prefs = { mode: 'desk', bounds: null, maximized: false };
+const prefsFile = () => path.join(app.getPath('userData'), 'window.json');
+function loadPrefs() {
+  try { Object.assign(prefs, JSON.parse(fs.readFileSync(prefsFile(), 'utf8'))); } catch (e) { /* first launch */ }
+  if (prefs.mode !== 'float') prefs.mode = 'desk';
+}
+function savePrefs() {
+  try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs)); } catch (e) { /* not fatal */ }
+}
+const isFloat = () => prefs.mode === 'float';
+
 function workArea() {
   return screen.getPrimaryDisplay().workArea;
 }
+/** Saved desk bounds, if they still land on a connected display. */
+function deskBounds() {
+  const b = prefs.bounds;
+  if (!b || !(b.width > 200 && b.height > 200)) return {};
+  const onScreen = screen.getAllDisplays().some(({ workArea: a }) => b.x < a.x + a.width - 80 && b.x + b.width > a.x + 80 && b.y < a.y + a.height - 40 && b.y + 20 > a.y);
+  return onScreen ? b : { width: b.width, height: b.height };
+}
 
 function createWindow() {
-  const { x, y, width, height } = workArea();
-  win = new BrowserWindow({
-    x, y, width, height,
-    transparent: true,
-    frame: false,
-    hasShadow: false,
-    resizable: false,
-    movable: false,
-    maximizable: false,
-    fullscreenable: false,
-    backgroundColor: '#00000000',
+  const float = isFloat();
+  const opts = {
     title: 'Tally',
     icon: path.join(__dirname, 'icon.png'),
     show: false,
@@ -37,15 +51,56 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
-  // Empty desk space passes clicks through to whatever is underneath.
-  win.setIgnoreMouseEvents(true, { forward: true });
-  win.setAlwaysOnTop(onTop, 'floating');
-  if (process.platform === 'darwin') win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.loadFile(path.join(__dirname, 'index.html'));
-  win.once('ready-to-show', () => win.show());
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  win.on('closed', () => { win = null; });
+  };
+  if (float) {
+    Object.assign(opts, workArea(), {
+      transparent: true,
+      frame: false,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      maximizable: false,
+      fullscreenable: false,
+      backgroundColor: '#00000000',
+    });
+  } else {
+    Object.assign(opts, { width: 1280, height: 820, minWidth: 720, minHeight: 520 }, deskBounds());
+  }
+  const w = new BrowserWindow(opts);
+  win = w;
+  if (float) {
+    // Empty desk space passes clicks through to whatever is underneath.
+    w.setIgnoreMouseEvents(true, { forward: true });
+    w.setAlwaysOnTop(onTop, 'floating');
+    if (process.platform === 'darwin') w.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  } else {
+    w.removeMenu();
+    if (prefs.maximized) w.maximize();
+    const keep = () => {
+      prefs.maximized = w.isMaximized();
+      if (!prefs.maximized && !w.isMinimized()) prefs.bounds = w.getBounds();
+    };
+    w.on('resize', keep);
+    w.on('move', keep);
+    w.on('close', () => { keep(); savePrefs(); });
+  }
+  w.loadFile(path.join(__dirname, 'index.html'));
+  w.once('ready-to-show', () => w.show());
+  w.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  w.on('closed', () => { if (win === w) win = null; });
+}
+
+/** Reopen the window as 'desk' or 'float'. The new window opens before the old one closes, so the app never quits in between. */
+function setMode(mode) {
+  mode = mode === 'float' ? 'float' : 'desk';
+  if (mode === prefs.mode && win) return;
+  const old = win;
+  if (old && !isFloat()) { prefs.maximized = old.isMaximized(); if (!prefs.maximized) prefs.bounds = old.getBounds(); }
+  prefs.mode = mode;
+  savePrefs();
+  createWindow();
+  if (old) old.destroy();
+  buildTrayMenu();
 }
 
 function toggleVisible() {
@@ -59,7 +114,10 @@ function buildTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: win && win.isVisible() ? 'Hide Tally' : 'Show Tally', accelerator: 'CommandOrControl+Shift+Space', click: toggleVisible },
-    { label: 'Float above other windows', type: 'checkbox', checked: onTop, click: (item) => setOnTop(item.checked) },
+    { type: 'separator' },
+    { label: 'Desk window', type: 'radio', checked: !isFloat(), click: () => setMode('desk') },
+    { label: 'Float over desktop', type: 'radio', checked: isFloat(), click: () => setMode('float') },
+    { label: 'Float above other windows', type: 'checkbox', checked: onTop, enabled: isFloat(), click: (item) => setOnTop(item.checked) },
     { type: 'separator' },
     { label: 'Quit Tally', click: () => app.quit() },
   ]));
@@ -67,19 +125,22 @@ function buildTrayMenu() {
 
 function setOnTop(on) {
   onTop = !!on;
-  if (win) win.setAlwaysOnTop(onTop, 'floating');
+  if (win && isFloat()) win.setAlwaysOnTop(onTop, 'floating');
   buildTrayMenu();
 }
 
 ipcMain.on('tally:interactive', (_e, on) => {
-  if (win) win.setIgnoreMouseEvents(!on, { forward: true });
+  if (win && isFloat()) win.setIgnoreMouseEvents(!on, { forward: true });
 });
 ipcMain.on('tally:ontop', (_e, on) => setOnTop(on));
+ipcMain.on('tally:mode', (e) => { e.returnValue = prefs.mode; });
+ipcMain.on('tally:setmode', (_e, mode) => setMode(mode));
 ipcMain.on('tally:quit', () => app.quit());
 
 app.on('second-instance', () => { if (win) { win.show(); win.focus(); } });
 
 app.whenReady().then(() => {
+  loadPrefs();
   createWindow();
   try {
     const img = nativeImage.createFromPath(path.join(__dirname, process.platform === 'darwin' ? 'tray.png' : 'tray@2x.png'));
@@ -89,7 +150,7 @@ app.whenReady().then(() => {
     buildTrayMenu();
   } catch (e) { /* tray not available on this desktop */ }
   globalShortcut.register('CommandOrControl+Shift+Space', toggleVisible);
-  screen.on('display-metrics-changed', () => { if (win) win.setBounds(workArea()); });
+  screen.on('display-metrics-changed', () => { if (win && isFloat()) win.setBounds(workArea()); });
   app.on('activate', () => { if (!win) createWindow(); });
 });
 
