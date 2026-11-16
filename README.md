@@ -1,6 +1,6 @@
 # Tally
 
-**A node-based calculator whose answers pop out as notes you can drag around your screen.**
+**A node-based calculator where answers pop out as notes you can drag around and merge with other nodes.**
 
 Every time you press <kbd>=</kbd>, the answer becomes a note on a zoomable board. Notes can reference each other and feed into function nodes, so change one number and everything built on it updates.
 
